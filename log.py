@@ -1,55 +1,113 @@
+#!/usr/bin/env python
+
 import psycopg2
 import datetime
 
-# What are the most popular three articles of all time?
 
-db = psycopg2.connect("dbname=news")
-c = db.cursor()
+def db_connect():
+	""" 
+	Creates and returns a connection to the database defined by DBNAME,
+	as well as a cursor for the database.
+	Returns:
+		db, c - a tuple. The first element is a connection to the database.
+				The second element is a cursor for the database.
+	"""
+	db = psycopg2.connect("dbname=news")
+	return db.cursor()
 
-query = "select a.title, count(a.title) as total  from (select title, CONCAT('/article/', slug) as articlepath" \
-        " from articles) as a left join log on a.articlepath = log.path group by a.title order by total desc limit 3"
 
-c.execute(query)
-rows = c.fetchall()
+def execute_query(query):
+	"""
+	execute_query takes an SQL query as a parameter. 
+	Executes the query and returns the results as a list of tuples.
+	args:
+	query - an SQL query statement to be executed.
 
-print "What are the most popular three articles of all time?"
-for row in rows:
-    print row[0] + ' - ' + str(int(row[1])) + ' views'
+	returns:
+	A list of tuples containing the results of the query.
+	"""
+	try:
+		c = db_connect()
+		c.execute(query)
+		return c.fetchall()
+	except (Exception, psycopg2.DatabaseError) as error:
+		print(error)
 
-db.close()
 
-# Who are the most popular article authors of all time?
+def print_top_articles():
+	"""Prints out the top 3 articles of all time."""
+	query = """SELECT a.title, count(a.title) AS total
+		FROM (
+		SELECT title, CONCAT('/article/', slug) AS articlepath
+			FROM articles
+		) AS a
+		LEFT JOIN log
+		ON a.articlepath = log.path
+		GROUP BY a.title
+		ORDER BY total DESC
+		LIMIT 3;"""
+	results = execute_query(query)
 
-db = psycopg2.connect("dbname=news")
-c = db.cursor()
+	print "What are the most popular three articles of all time?"
+	for row in results:
+		print row[0] + ' - ' + str(int(row[1])) + ' views'
 
-query = "select a.authorname, count(a.title) as total  from (select title, CONCAT('/article/', slug) as articlepath, authors.name as authorname" \
-        " from articles, authors where articles.author = authors.id ) as a left join log on a.articlepath = log.path group by a.authorname order by total desc limit 3"
 
-c.execute(query)
-rows = c.fetchall()
+def print_top_authors():
+	"""Prints a list of authors ranked by article views."""
+	query = """SELECT a.authorname, count(a.title) AS total
+		FROM (
+			SELECT title, CONCAT('/article/', slug) AS articlepath,
+			authors.name AS authorname
+			FROM articles, authors
+			WHERE articles.author = authors.id
+		) AS a
+		LEFT JOIN log
+		ON a.articlepath = log.path
+		GROUP BY a.authorname
+		ORDER BY total desc
+		LIMIT 3;"""
+	results = execute_query(query)
 
-print "Who are the most popular article authors of all time?"
-for row in rows:
-    print row[0] + ' - ' + str(int(row[1])) + ' views'
+	print "Who are the most popular article authors of all time?"
+	for row in results:
+		print row[0] + ' - ' + str(int(row[1])) + ' views'
 
-db.close()
 
-# On which days did more than 1% of requests lead to errors?
+def print_errors_over_one():
+	"""Prints out the days where more than 1% of logged access requests were errors."""
+	query = """SELECT *
+		FROM (
+			SELECT a.badtime AS t,
+			((cast(a.badtotal AS float) / cast(b.alltotal AS float)) * 100) AS percent
+			FROM (
+				SELECT cast(time AS date) AS badtime, count(cast(time AS date)) AS badtotal
+				FROM log
+				WHERE status != '200 OK'
+				GROUP BY cast(time AS date)
+			) AS a
+			LEFT JOIN (
+				SELECT cast(time AS date) AS alltime, count(cast(time AS date)) AS alltotal
+				FROM log
+				GROUP BY cast(time as date)
+			) AS b
+			ON a.badtime = b.alltime
+			ORDER BY percent DESC
+		) AS c
+		WHERE percent > 1"""
+	results = execute_query(query)
 
-db = psycopg2.connect('dbname=news')
-c = db.cursor()
+	print "On which days did more than 1% of requests lead to errors?"
+	for row in results:
+		print row[0].strftime('%B %d, %Y') + ' - ' + str(float(row[1])) + '%'
 
-query = "select * from (select a.badtime as t, ((cast(a.badtotal as float) / cast(b.alltotal as float)) * 100) as percent from " \
-        "(select cast(time as date) as badtime, count(cast(time as date)) as badtotal from log where status != '200 OK' group by cast(time as date)) as a " \
-        "left join (select cast(time as date) as alltime, count(cast(time as date)) as alltotal from log group by cast(time as date)) as b " \
-        "on a.badtime = b.alltime order by percent desc) as c where percent > 1"
 
-c.execute(query)
-rows = c.fetchall()
+if __name__ == '__main__':
+	print_top_articles()
+	print_top_authors()
+	print_errors_over_one()
 
-print "On which days did more than 1% of requests lead to errors?"
-for row in rows:
-    print row[0].strftime('%B %d, %Y') + ' - ' + str(float(row[1])) + '%'
-    # print row
-db.close()
+
+
+
+
